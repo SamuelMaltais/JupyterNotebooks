@@ -1,4 +1,6 @@
 import numpy as np
+import math
+import matplotlib.pyplot as plt
 
 ######## DO NOT MODIFY THIS FUNCTION ########
 def draw_rand_label(x, label_list):
@@ -31,15 +33,43 @@ class Q1:
 
 
 class HardParzen:
+    label_list = None
+    label_inputs = None
+
     def __init__(self, h):
         self.h = h
 
     def fit(self, train_inputs, train_labels):
-        # self.label_list = np.unique(train_labels)
-        pass
-
+        self.label_list = np.unique(train_labels)
+        self.train_inputs = train_inputs
     def predict(self, test_data):
-        pass
+        
+        predictions = []
+        for test in test_data:
+            distances = np.abs(self.train_inputs[:, :-1] - test)
+            # On remet les labels
+            distances = np.concatenate((distances, self.train_inputs[:, -1].reshape(-1, 1)), axis=1)
+
+            # On a donc un hypercube avec distance h centre sur le point du test data. Il faut donc drop toutes les rows ayant des attributs plus grands que h
+            distances = distances[np.all(distances[:, :-1] <= self.h, axis=1)]  
+            labels = distances[:, -1]
+            distances_somme =  np.sum(distances[:, :-1], axis=1).reshape(-1, 1)
+            voisins = []
+
+            # Finalement, on a un array avec [[distance, label],...] dans la fenetre de panzen.
+            if distances_somme.size == 0:
+                #Test data comme seed
+                predictions.append(draw_rand_label(x=test,label_list=self.label_list))
+            else:
+                # On fait un count de chaque label
+                for label in self.label_list:
+                    labels_correspondant = (label == labels)
+                    voisins.append(np.sum(labels_correspondant))
+                predictions.append(np.argmax(np.array(voisins)) + 1)
+
+        return np.array(predictions)
+
+    
 
 
 class SoftRBFParzen:
@@ -47,16 +77,38 @@ class SoftRBFParzen:
         self.sigma  = sigma
 
     def fit(self, train_inputs, train_labels):
-        # self.label_list = np.unique(train_labels)
-        pass
+        self.label_list = np.unique(train_labels)
+        self.train_inputs = train_inputs
 
     def predict(self, test_data):
-        pass
+        predictions = []
+        for test in test_data:
+            distances = np.abs(self.train_inputs[:, :-1] - test)
+            # On remet les labels
+            distances = np.concatenate((distances, self.train_inputs[:, -1].reshape(-1, 1)), axis=1) 
+            distances_somme =  np.sum(distances[:, :-1], axis=1).reshape(-1, 1)
+            # On applique le kernel et on prend le label associe a la plus grande valeure
+            kernel = np.vectorize(lambda x: math.exp(-x / self.sigma**2))
+            predictions.append(int(distances[np.argmax(kernel(distances_somme))][-1]))
+        
+
+        return np.array(predictions)
 
 
 def split_dataset(iris):
-    pass
+    train_data = []
+    validation_data = []
+    test_data = []
 
+    for i in range(iris.shape[0]):
+        if i % 5 < 3:
+            train_data.append(iris[i])
+        elif i % 5 < 4:
+            validation_data.append(iris[i])
+        else:
+            test_data.append(iris[i])
+
+    return np.array(train_data), np.array(validation_data), np.array(test_data)
 
 class ErrorRate:
     def __init__(self, x_train, y_train, x_val, y_val):
@@ -66,14 +118,47 @@ class ErrorRate:
         self.y_val = y_val
 
     def hard_parzen(self, h):
-        pass
+        # {0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 1.0, 3.0, 10.0, 20.0}
+        hard = HardParzen(h)
+        hard.fit(self.x_train,self.x_val)
+        
+        difference = hard.predict(self.y_train[:, :-1]) - self.y_val
+
+        correct = (difference == 0)
+        rate = (self.y_val.size - np.sum(correct)) / self.y_val.size
+
+        return rate
 
     def soft_parzen(self, sigma):
-        pass
+        soft = SoftRBFParzen(sigma)
+        soft.fit(self.x_train,self.x_val)
+        
+        difference = soft.predict(self.y_train[:, :-1]) - self.y_val
 
+        correct = (difference == 0)
+        rate = (self.y_val.size - np.sum(correct)) / self.y_val.size
+        return rate
+
+
+def make_graph(iris):
+    train_data, validation_data, test_data = split_dataset(iris=iris)
+    err = ErrorRate(train_data, validation_data, train_data[:, 4:] , validation_data[:, 4:].reshape(1,-1)[0])
+    x_axis = [0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 1.0, 3.0, 10.0, 20.0]
+    y_axis_soft = [err.soft_parzen(sigma) for sigma in x_axis]
+    y_axis_hard = [err.hard_parzen(h) for h in x_axis]
+
+    plt.figure(figsize=(8, 6))
+    plt.plot(x_axis, y_axis_soft, marker='o', linestyle='-', color='b', label="SoftParzen(sigma)")
+    plt.plot(x_axis, y_axis_hard, marker='o', linestyle='-', color='r', label="HardParzen(h)")
+
+    plt.title("Erreur en utilisant Soft Parzen")
+    plt.xlabel("sigma et h")
+    plt.ylabel("Taux d'erreur")
+    plt.legend()
+    plt.show()
 
 def get_test_errors(iris):
-    pass
+    train_data, validation_data, test_data = split_dataset(iris=iris)
 
 
 def random_projections(X, A):
@@ -94,8 +179,41 @@ def tests_q1():
     print(q1.feature_means_class_1(iris=iris))
     print("================================COVARIANCE1================================")
     print(q1.empirical_covariance_class_1(iris=iris))
+def tests_q2():
+    iris = np.genfromtxt('iris.txt')
+    q2 = HardParzen(0.5)
+    print("================================PREDICT1================================")
+    q2.fit(iris, iris[:, 4:])
+    #6.200000 2.900000 4.300000 1.300000 2
+    print(q2.predict(np.array([[6.200000, 2.900000, 4.300000, 1.300000],[6.200000, 2.900000, 4.300000, 2.300000]])))
+def tests_q3():
+    iris = np.genfromtxt('iris.txt')
+    
+
+    print("================================PREDICT1================================")
+    print("================================HARD================================")
+    q2 = HardParzen(0.5)
+    q2.fit(iris, iris[:, 4:])
+    print(q2.predict(np.array([[6.200000, 2.900000, 4.300000, 1.300000],[6.200000, 2.900000, 4.300000, 2.300000]])))
+    print("================================SOFT================================")
+    q3 = SoftRBFParzen(1)
+    q3.fit(iris, iris[:, 4:])
+    print(q3.predict(np.array([[6.200000, 2.900000, 4.300000, 1.300000],[6.200000, 2.900000, 4.300000, 2.300000]])))
+
+def test_q4():
+    iris = np.genfromtxt('iris.txt')
+
+    train_data, validation_data, test_data = split_dataset(iris=iris)
+
+    err = ErrorRate(train_data, validation_data, train_data[:, 4:] , validation_data[:, 4:].reshape(1,-1)[0])
+    make_graph(iris)
+
+
 
 
 
 if __name__ == "__main__":
-    tests_q1()
+   #tests_q1()
+   #tests_q2()
+   #tests_q3()
+   test_q4()
