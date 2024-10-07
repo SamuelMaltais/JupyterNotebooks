@@ -35,6 +35,7 @@ class Q1:
 class HardParzen:
     label_list = None
     label_inputs = None
+    train_labels = None
 
     def __init__(self, h):
         self.h = h
@@ -42,17 +43,19 @@ class HardParzen:
     def fit(self, train_inputs, train_labels):
         self.label_list = np.unique(train_labels)
         self.train_inputs = train_inputs
+        self.train_labels = train_labels
     def predict(self, test_data):
         
         predictions = []
         for test in test_data:
-            distances = np.abs(self.train_inputs[:, :-1] - test)
+            distances = np.abs(self.train_inputs - test)
             # On remet les labels
-            distances = np.concatenate((distances, self.train_inputs[:, -1].reshape(-1, 1)), axis=1)
+            train_labels_column = self.train_labels[:, np.newaxis]
+            distances = np.concatenate([distances, train_labels_column], axis=1)
 
             # On a donc un hypercube avec distance h centre sur le point du test data. Il faut donc drop toutes les rows ayant des attributs plus grands que h
             distances = distances[np.all(distances[:, :-1] <= self.h, axis=1)]  
-            labels = distances[:, -1]
+            labels = distances[:, 4:]
             distances_somme =  np.sum(distances[:, :-1], axis=1).reshape(-1, 1)
             voisins = []
 
@@ -67,6 +70,7 @@ class HardParzen:
                     voisins.append(np.sum(labels_correspondant))
                 predictions.append(np.argmax(np.array(voisins)) + 1)
 
+        print(np.array(predictions))
         return np.array(predictions)
 
     
@@ -79,13 +83,14 @@ class SoftRBFParzen:
     def fit(self, train_inputs, train_labels):
         self.label_list = np.unique(train_labels)
         self.train_inputs = train_inputs
-
+        self.train_labels = train_labels
     def predict(self, test_data):
         predictions = []
         for test in test_data:
-            distances = np.abs(self.train_inputs[:, :-1] - test)
+            distances = np.abs(self.train_inputs - test)
             # On remet les labels
-            distances = np.concatenate((distances, self.train_inputs[:, -1].reshape(-1, 1)), axis=1) 
+            train_labels_column = self.train_labels[:, np.newaxis]
+            distances = np.concatenate([distances, train_labels_column], axis=1)
             distances_somme =  np.sum(distances[:, :-1], axis=1).reshape(-1, 1)
             # On applique le kernel et on prend le label associe a la plus grande valeure
             kernel = np.vectorize(lambda x: math.exp(-x / self.sigma**2))
@@ -118,31 +123,30 @@ class ErrorRate:
         self.y_val = y_val
 
     def hard_parzen(self, h):
-        # {0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 1.0, 3.0, 10.0, 20.0}
         hard = HardParzen(h)
-        hard.fit(self.x_train,self.x_val)
+        hard.fit(self.x_train , self.y_train)
         
-        difference = hard.predict(self.y_train[:, :-1]) - self.y_val
+        difference = hard.predict(self.y_val) - self.y_val
 
         correct = (difference == 0)
         rate = (self.y_val.size - np.sum(correct)) / self.y_val.size
 
-        return rate
+        return float(rate)
 
     def soft_parzen(self, sigma):
         soft = SoftRBFParzen(sigma)
-        soft.fit(self.x_train,self.x_val)
+        soft.fit(self.x_train , self.y_train)
         
-        difference = soft.predict(self.y_train[:, :-1]) - self.y_val
+        difference = soft.predict(self.y_val) - self.y_val
 
         correct = (difference == 0)
         rate = (self.y_val.size - np.sum(correct)) / self.y_val.size
-        return rate
+        return float(rate)
 
 
 def make_graph(iris):
     train_data, validation_data, test_data = split_dataset(iris=iris)
-    err = ErrorRate(train_data, validation_data, train_data[:, 4:] , validation_data[:, 4:].reshape(1,-1)[0])
+    err = ErrorRate(train_data[:, :4], train_data[:, -1], validation_data[:, :4], validation_data[:, -1])
     x_axis = [0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 1.0, 3.0, 10.0, 20.0]
     y_axis_soft = [err.soft_parzen(sigma) for sigma in x_axis]
     y_axis_hard = [err.hard_parzen(h) for h in x_axis]
@@ -159,7 +163,13 @@ def make_graph(iris):
 
 def get_test_errors(iris):
     train_data, validation_data, test_data = split_dataset(iris=iris)
+    err = ErrorRate(train_data[:, :4], train_data[:, -1], validation_data[:, :4], validation_data[:, -1])
 
+    x_axis = [0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 1.0, 3.0, 10.0, 20.0]
+    y_axis_soft = [err.soft_parzen(sigma) for sigma in x_axis]
+    y_axis_hard = [err.hard_parzen(h) for h in x_axis]
+
+    return [x_axis[np.argmin(y_axis_hard)], x_axis[np.argmin(y_axis_soft)]]
 
 def random_projections(X, A):
     pass
@@ -183,7 +193,7 @@ def tests_q2():
     iris = np.genfromtxt('iris.txt')
     q2 = HardParzen(0.5)
     print("================================PREDICT1================================")
-    q2.fit(iris, iris[:, 4:])
+    q2.fit(iris[:, :-1], iris[:, 4:])
     #6.200000 2.900000 4.300000 1.300000 2
     print(q2.predict(np.array([[6.200000, 2.900000, 4.300000, 1.300000],[6.200000, 2.900000, 4.300000, 2.300000]])))
 def tests_q3():
@@ -193,21 +203,22 @@ def tests_q3():
     print("================================PREDICT1================================")
     print("================================HARD================================")
     q2 = HardParzen(0.5)
-    q2.fit(iris, iris[:, 4:])
+    print(iris[:, :-1])
+    q2.fit(iris[:, :-1], iris[:, 4:].reshape(1, -1)[0])
     print(q2.predict(np.array([[6.200000, 2.900000, 4.300000, 1.300000],[6.200000, 2.900000, 4.300000, 2.300000]])))
     print("================================SOFT================================")
     q3 = SoftRBFParzen(1)
-    q3.fit(iris, iris[:, 4:])
+    q3.fit(iris[:, :-1], iris[:, 4:].reshape(1, -1)[0])
     print(q3.predict(np.array([[6.200000, 2.900000, 4.300000, 1.300000],[6.200000, 2.900000, 4.300000, 2.300000]])))
 
 def test_q4():
     iris = np.genfromtxt('iris.txt')
 
     train_data, validation_data, test_data = split_dataset(iris=iris)
-
-    err = ErrorRate(train_data, validation_data, train_data[:, 4:] , validation_data[:, 4:].reshape(1,-1)[0])
-    make_graph(iris)
-
+    err = ErrorRate(train_data[:, :4], train_data[:, -1], validation_data[:, :4], validation_data[:, -1])
+    print(err.hard_parzen(0.5))
+    #make_graph(iris)
+    #print(get_test_errors(iris))
 
 
 
